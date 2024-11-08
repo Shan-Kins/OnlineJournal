@@ -1,21 +1,29 @@
+// db.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const sql = require('msnodesqlv8');
+const { Connection, Request } = require('tedious');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Database connection string
-const connectionString = 
-  `Driver={SQL Server Native Client 11.0};` +
-  `Server=MSI\\SQLEXPRESS;` +
-  `Database=OnlineJournalWebApp;` +
-  `Trusted_Connection=yes;`;
+const config = {
+    server: 'MSI\\SQLEXPRESS',
+    authentication: {
+        type: 'ntlm',  // Use NTLM for Windows Authentication
+        options: {
+            domain: '', // You can leave this empty for a local connection
+        }
+    },
+    options: {
+        database: 'OnlineJournalWebApp',
+        encrypt: true,
+        trustServerCertificate: true
+    }
+};
 
-// Middleware setup
-app.use(bodyParser.json());  // Parse incoming JSON requests
-app.use(cors());  // Enable Cross-Origin Resource Sharing
+app.use(bodyParser.json());
+app.use(cors());
 
 // Basic test route
 app.get('/', (req, res) => {
@@ -25,41 +33,42 @@ app.get('/', (req, res) => {
 
 // Test database connection
 app.get('/test-db', (req, res) => {
-    sql.open(connectionString, (err, connection) => {
+    const connection = new Connection(config);
+    connection.on('connect', err => {
         if (err) {
             res.status(500).send('Failed to connect to database');
             console.error('Database connection error:', err);
         } else {
             res.send('Database connected successfully!');
-            connection.close();  // Always close the connection
         }
     });
+    connection.connect();
 });
 
 // Route to handle POST request to add a journal entry
 app.post('/entries', (req, res) => {
-    const { userId, entryText } = req.body;  // Get userId and entryText from the request body
+    const { userId, entryText } = req.body;
 
-    // SQL query to insert the new entry into the database
-    const query = `INSERT INTO DearDiary.Entries (userId, entryText) VALUES (${userId}, '${entryText}')`;
-
-    // Connect to the database and insert the entry
-    sql.open(connectionString, (err, connection) => {
+    const connection = new Connection(config);
+    connection.on('connect', err => {
         if (err) {
             console.error('Database connection failed:', err);
             res.status(500).send('Failed to connect to the database');
         } else {
-            connection.query(query, (err, result) => {
+            const query = `INSERT INTO DearDiary.Entries (userId, entryText) VALUES (${userId}, '${entryText}')`;
+            const request = new Request(query, (err, rowCount) => {
                 if (err) {
                     console.error('Insert failed:', err);
                     res.status(500).send('Failed to insert entry');
                 } else {
                     res.status(201).send('Entry inserted successfully');
                 }
-                connection.close();  // Always close the connection
             });
+
+            connection.execSql(request);
         }
     });
+    connection.connect();
 });
 
 // Start the server
